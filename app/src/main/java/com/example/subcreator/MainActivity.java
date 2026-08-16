@@ -6,9 +6,11 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -19,9 +21,8 @@ import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.StorageService;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,12 +31,15 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private static final int PICK_FILE_REQUEST = 1;
+    private static final int CREATE_FILE_REQUEST = 2;
+
     private List<SubtitleItem> subtitleList = new ArrayList<>();
     private LinearLayout subContainer;
     private TextView statusText;
     private Model voskModelCn;
     private Model voskModelVn;
     private Spinner langSpinner;
+    private Spinner exportModeSpinner;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,41 +50,57 @@ public class MainActivity extends Activity {
         rootLayout.setPadding(32, 32, 32, 32);
 
         TextView titleText = new TextView(this);
-        titleText.setText("SubCreator - Trình Tạo Phụ Đề Offline");
+        titleText.setText("SubCreator - Trình Tạo Phụ Đề & Dịch Sub");
         titleText.setTextSize(20);
         titleText.setTypeface(null, Typeface.BOLD);
         titleText.setPadding(0, 0, 0, 16);
         rootLayout.addView(titleText);
 
-        // Khung chọn ngôn ngữ
+        // Khung chọn ngôn ngữ âm thanh
         LinearLayout langLayout = new LinearLayout(this);
         langLayout.setOrientation(LinearLayout.HORIZONTAL);
-        langLayout.setPadding(0, 0, 0, 16);
+        langLayout.setPadding(0, 0, 0, 12);
 
         TextView langLabel = new TextView(this);
-        langLabel.setText("Ngôn ngữ âm thanh: ");
+        langLabel.setText("Ngôn ngữ đầu vào: ");
         langLabel.setTextSize(15);
         langLayout.addView(langLabel);
 
         langSpinner = new Spinner(this);
         String[] languages = {"Tiếng Trung (Mandarin)", "Tiếng Việt (Vietnamese)"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages);
-        langSpinner.setAdapter(adapter);
+        ArrayAdapter<String> langAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages);
+        langSpinner.setAdapter(langAdapter);
         langLayout.addView(langSpinner);
-
         rootLayout.addView(langLayout);
 
-        // Khung nút bấm
+        // Khung chọn chế độ xuất file SRT
+        LinearLayout exportLayout = new LinearLayout(this);
+        exportLayout.setOrientation(LinearLayout.HORIZONTAL);
+        exportLayout.setPadding(0, 0, 0, 16);
+
+        TextView exportLabel = new TextView(this);
+        exportLabel.setText("Định dạng file SRT: ");
+        exportLabel.setTextSize(15);
+        exportLayout.addView(exportLabel);
+
+        exportModeSpinner = new Spinner(this);
+        String[] exportModes = {"Song ngữ (Trung - Việt)", "Chỉ Tiếng Việt", "Chỉ Tiếng Gốc"};
+        ArrayAdapter<String> exportAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, exportModes);
+        exportModeSpinner.setAdapter(exportAdapter);
+        exportLayout.addView(exportModeSpinner);
+        rootLayout.addView(exportLayout);
+
+        // Nút chọn file & xuất file
         LinearLayout btnLayout = new LinearLayout(this);
         btnLayout.setOrientation(LinearLayout.HORIZONTAL);
 
         Button btnSelectFile = new Button(this);
-        btnSelectFile.setText("Chọn File Âm Thanh/Video");
+        btnSelectFile.setText("1. Chọn File Âm Thanh");
         btnSelectFile.setOnClickListener(v -> openFilePicker());
 
         Button btnExportSrt = new Button(this);
-        btnExportSrt.setText("Xuất File .SRT");
-        btnExportSrt.setOnClickListener(v -> exportSrtFile());
+        btnExportSrt.setText("2. Lưu / Chọn Thư Mục SRT");
+        btnExportSrt.setOnClickListener(v -> openSaveFilePicker());
 
         btnLayout.addView(btnSelectFile);
         btnLayout.addView(btnExportSrt);
@@ -109,7 +129,7 @@ public class MainActivity extends Activity {
                 StorageService.unpack(this, "model-vn", "model-vn",
                     modelVn -> {
                         voskModelVn = modelVn;
-                        statusText.setText("Trạng thái: Đã sẵn sàng mô hình AI Tiếng Trung & Tiếng Việt!");
+                        statusText.setText("Trạng thái: Đã sẵn sàng Mô hình AI & Dịch thuật Offline!");
                     },
                     exception -> statusText.setText("Lỗi tải Mô hình AI Tiếng Việt: " + exception.getMessage())
                 );
@@ -124,13 +144,31 @@ public class MainActivity extends Activity {
         startActivityForResult(intent, PICK_FILE_REQUEST);
     }
 
+    private void openSaveFilePicker() {
+        if (subtitleList.isEmpty()) {
+            Toast.makeText(this, "Chưa có phụ đề để lưu!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, "subcreator_output.srt");
+        startActivityForResult(intent, CREATE_FILE_REQUEST);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_FILE_REQUEST && resultCode == RESULT_OK && data != null) {
-            Uri fileUri = data.getData();
-            statusText.setText("Đang phân tích âm thanh & tính toán timeline...");
-            processAudioFile(fileUri);
+        if (resultCode == RESULT_OK && data != null) {
+            if (requestCode == PICK_FILE_REQUEST) {
+                Uri fileUri = data.getData();
+                statusText.setText("Đang bóc tách phụ đề & dịch sang Tiếng Việt...");
+                processAudioFile(fileUri);
+            } else if (requestCode == CREATE_FILE_REQUEST) {
+                Uri saveUri = data.getData();
+                writeSrtToUri(saveUri);
+            }
         }
     }
 
@@ -139,7 +177,7 @@ public class MainActivity extends Activity {
         Model activeModel = isChinese ? voskModelCn : voskModelVn;
 
         if (activeModel == null) {
-            Toast.makeText(this, "Mô hình AI cho ngôn ngữ này chưa sẵn sàng!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Mô hình AI chưa sẵn sàng!", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -154,7 +192,7 @@ public class MainActivity extends Activity {
 
                 long bytesProcessed = 0;
                 long startMs = 0;
-                double bytesPerMs = 32.0; // Giả định PCM 16kHz 16-bit Mono
+                double bytesPerMs = 32.0;
 
                 while ((nbytes = is.read(buffer)) >= 0) {
                     bytesProcessed += nbytes;
@@ -164,9 +202,8 @@ public class MainActivity extends Activity {
                         String resultJson = recognizer.getResult();
                         String text = extractTextFromJson(resultJson);
                         if (!text.trim().isEmpty()) {
-                            String startTimeStr = formatSrtTime(startMs);
-                            String endTimeStr = formatSrtTime(currentMs);
-                            subtitleList.add(new SubtitleItem(id++, startTimeStr, endTimeStr, text));
+                            String translated = isChinese ? TranslateHelper.translateCnToVn(text) : text;
+                            subtitleList.add(new SubtitleItem(id++, formatSrtTime(startMs), formatSrtTime(currentMs), text, translated));
                             startMs = currentMs;
                         }
                     }
@@ -176,14 +213,15 @@ public class MainActivity extends Activity {
                 String finalText = extractTextFromJson(finalJson);
                 if (!finalText.trim().isEmpty()) {
                     long currentMs = (long) (bytesProcessed / bytesPerMs);
-                    subtitleList.add(new SubtitleItem(id++, formatSrtTime(startMs), formatSrtTime(currentMs), finalText));
+                    String translated = isChinese ? TranslateHelper.translateCnToVn(finalText) : finalText;
+                    subtitleList.add(new SubtitleItem(id++, formatSrtTime(startMs), formatSrtTime(currentMs), finalText, translated));
                 }
 
                 is.close();
                 recognizer.close();
 
                 runOnUiThread(() -> {
-                    statusText.setText("Hoàn tất! Bóc tách được " + subtitleList.size() + " câu phụ đề kèm Timeline.");
+                    statusText.setText("Hoàn tất! Đã bóc tách & dịch " + subtitleList.size() + " câu phụ đề.");
                     renderSubEditor();
                 });
 
@@ -218,7 +256,7 @@ public class MainActivity extends Activity {
             itemCard.setOrientation(LinearLayout.VERTICAL);
             itemCard.setPadding(24, 20, 24, 20);
 
-            // Mốc thời gian (Timeline)
+            // Mốc thời gian
             TextView timeView = new TextView(this);
             timeView.setText("[" + item.getStartTime() + "  -->  " + item.getEndTime() + "]");
             timeView.setTextSize(13);
@@ -226,43 +264,55 @@ public class MainActivity extends Activity {
             timeView.setTextColor(Color.parseColor("#0066CC"));
             timeView.setPadding(0, 0, 0, 6);
 
-            // Nội dung Phụ đề
-            TextView subTextView = new TextView(this);
-            subTextView.setText(item.getOriginalText());
-            subTextView.setTextSize(16);
-            subTextView.setTextColor(Color.BLACK);
+            // Văn bản gốc
+            TextView origView = new TextView(this);
+            origView.setText("Gốc: " + item.getOriginalText());
+            origView.setTextSize(14);
+
+            // Ô chỉnh sửa câu dịch Tiếng Việt
+            EditText transEdit = new EditText(this);
+            transEdit.setText(item.getTranslatedText());
+            transEdit.setTextSize(15);
+            transEdit.setTextColor(Color.parseColor("#008800"));
+            transEdit.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    item.setTranslatedText(s.toString());
+                }
+
+                @Override
+                public void afterTextChanged(Editable s) {}
+            });
 
             itemCard.addView(timeView);
-            itemCard.addView(subTextView);
+            itemCard.addView(origView);
+            itemCard.addView(transEdit);
 
             subContainer.addView(itemCard);
         }
     }
 
-    private void exportSrtFile() {
-        if (subtitleList.isEmpty()) {
-            Toast.makeText(this, "Không có phụ đề để xuất!", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        StringBuilder srtContent = new StringBuilder();
-        for (SubtitleItem item : subtitleList) {
-            srtContent.append(item.toSrtFormat());
-        }
-
+    private void writeSrtToUri(Uri uri) {
         try {
-            File path = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
-            File file = new File(path, "subcreator_output.srt");
-            FileOutputStream stream = new FileOutputStream(file);
-            OutputStreamWriter writer = new OutputStreamWriter(stream);
+            int mode = exportModeSpinner.getSelectedItemPosition();
+            StringBuilder srtContent = new StringBuilder();
+            for (SubtitleItem item : subtitleList) {
+                srtContent.append(item.toSrtFormat(mode));
+            }
+
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            OutputStreamWriter writer = new OutputStreamWriter(os, "UTF-8");
             writer.write(srtContent.toString());
             writer.close();
-            stream.close();
+            if (os != null) os.close();
 
-            statusText.setText("Xuất file thành công: " + file.getAbsolutePath());
-            Toast.makeText(this, "Đã xuất file .srt thành công!", Toast.LENGTH_LONG).show();
+            statusText.setText("Đã lưu file SRT thành công tại vị trí đã chọn!");
+            Toast.makeText(this, "Đã lưu file SRT thành công!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Lỗi khi xuất file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Lỗi khi lưu file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 }
