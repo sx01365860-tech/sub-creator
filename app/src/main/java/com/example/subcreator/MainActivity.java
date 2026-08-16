@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
         rootLayout.setPadding(32, 32, 32, 32);
 
         TextView titleText = new TextView(this);
-        titleText.setText("SubCreator - Trình Tạo Phụ Đề & Dịch Sub");
+        titleText.setText("SubCreator - Trình Tạo Phụ Đề & AI Ngữ Cảnh");
         titleText.setTextSize(20);
         titleText.setTypeface(null, Typeface.BOLD);
         titleText.setPadding(0, 0, 0, 16);
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         exportLayout.setPadding(0, 0, 0, 16);
 
         TextView exportLabel = new TextView(this);
-        exportLabel.setText("Định dạng file SRT: ");
+        exportLabel.setText("Định dạng xuất SRT: ");
         exportLabel.setTextSize(15);
         exportLayout.addView(exportLabel);
 
@@ -90,21 +90,26 @@ public class MainActivity extends Activity {
         exportLayout.addView(exportModeSpinner);
         rootLayout.addView(exportLayout);
 
-        // Nút chọn file & xuất file
-        LinearLayout btnLayout = new LinearLayout(this);
-        btnLayout.setOrientation(LinearLayout.HORIZONTAL);
+        // Khung các nút thao tác chính
+        LinearLayout btnRow1 = new LinearLayout(this);
+        btnRow1.setOrientation(LinearLayout.HORIZONTAL);
 
         Button btnSelectFile = new Button(this);
-        btnSelectFile.setText("1. Chọn File Âm Thanh");
+        btnSelectFile.setText("1. Chọn File");
         btnSelectFile.setOnClickListener(v -> openFilePicker());
 
-        Button btnExportSrt = new Button(this);
-        btnExportSrt.setText("2. Lưu / Chọn Thư Mục SRT");
-        btnExportSrt.setOnClickListener(v -> openSaveFilePicker());
+        Button btnAiContext = new Button(this);
+        btnAiContext.setText("2. AI Rà Soát Ngữ Cảnh");
+        btnAiContext.setOnClickListener(v -> applyAiContextReview());
 
-        btnLayout.addView(btnSelectFile);
-        btnLayout.addView(btnExportSrt);
-        rootLayout.addView(btnLayout);
+        btnRow1.addView(btnSelectFile);
+        btnRow1.addView(btnAiContext);
+        rootLayout.addView(btnRow1);
+
+        Button btnExportSrt = new Button(this);
+        btnExportSrt.setText("3. Lưu / Chọn Thư Mục SRT");
+        btnExportSrt.setOnClickListener(v -> openSaveFilePicker());
+        rootLayout.addView(btnExportSrt);
 
         statusText = new TextView(this);
         statusText.setText("Đang khởi tạo các Mô hình AI Offline...");
@@ -129,7 +134,7 @@ public class MainActivity extends Activity {
                 StorageService.unpack(this, "model-vn", "model-vn",
                     modelVn -> {
                         voskModelVn = modelVn;
-                        statusText.setText("Trạng thái: Đã sẵn sàng Mô hình AI & Dịch thuật Offline!");
+                        statusText.setText("Trạng thái: Đã sẵn sàng Mô hình AI & Rà soát Ngữ cảnh!");
                     },
                     exception -> statusText.setText("Lỗi tải Mô hình AI Tiếng Việt: " + exception.getMessage())
                 );
@@ -142,6 +147,18 @@ public class MainActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("*/*");
         startActivityForResult(intent, PICK_FILE_REQUEST);
+    }
+
+    private void applyAiContextReview() {
+        if (subtitleList.isEmpty()) {
+            Toast.makeText(this, "Chưa có phụ đề để rà soát ngữ cảnh!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        SubContextAIHelper.reviewAndRefine(subtitleList);
+        renderSubEditor();
+        statusText.setText("Đã AI rà soát & tối ưu ngữ cảnh cho " + subtitleList.size() + " câu phụ đề!");
+        Toast.makeText(this, "Tối ưu ngữ cảnh phụ đề thành công!", Toast.LENGTH_SHORT).show();
     }
 
     private void openSaveFilePicker() {
@@ -163,7 +180,7 @@ public class MainActivity extends Activity {
         if (resultCode == RESULT_OK && data != null) {
             if (requestCode == PICK_FILE_REQUEST) {
                 Uri fileUri = data.getData();
-                statusText.setText("Đang bóc tách phụ đề & dịch sang Tiếng Việt...");
+                statusText.setText("Đang bóc tách phụ đề & dịch thuật...");
                 processAudioFile(fileUri);
             } else if (requestCode == CREATE_FILE_REQUEST) {
                 Uri saveUri = data.getData();
@@ -220,8 +237,11 @@ public class MainActivity extends Activity {
                 is.close();
                 recognizer.close();
 
+                // Tự động rà soát ngữ cảnh ban đầu
+                SubContextAIHelper.reviewAndRefine(subtitleList);
+
                 runOnUiThread(() -> {
-                    statusText.setText("Hoàn tất! Đã bóc tách & dịch " + subtitleList.size() + " câu phụ đề.");
+                    statusText.setText("Hoàn tất! Bóc tách & rà soát ngữ cảnh " + subtitleList.size() + " câu phụ đề.");
                     renderSubEditor();
                 });
 
@@ -256,7 +276,7 @@ public class MainActivity extends Activity {
             itemCard.setOrientation(LinearLayout.VERTICAL);
             itemCard.setPadding(24, 20, 24, 20);
 
-            // Mốc thời gian
+            // Timeline
             TextView timeView = new TextView(this);
             timeView.setText("[" + item.getStartTime() + "  -->  " + item.getEndTime() + "]");
             timeView.setTextSize(13);
@@ -264,12 +284,12 @@ public class MainActivity extends Activity {
             timeView.setTextColor(Color.parseColor("#0066CC"));
             timeView.setPadding(0, 0, 0, 6);
 
-            // Văn bản gốc
+            // Câu gốc
             TextView origView = new TextView(this);
             origView.setText("Gốc: " + item.getOriginalText());
             origView.setTextSize(14);
 
-            // Ô chỉnh sửa câu dịch Tiếng Việt
+            // Câu dịch Tiếng Việt (có thể chỉnh sửa thủ công)
             EditText transEdit = new EditText(this);
             transEdit.setText(item.getTranslatedText());
             transEdit.setTextSize(15);
@@ -309,7 +329,7 @@ public class MainActivity extends Activity {
             writer.close();
             if (os != null) os.close();
 
-            statusText.setText("Đã lưu file SRT thành công tại vị trí đã chọn!");
+            statusText.setText("Đã lưu file SRT thành công!");
             Toast.makeText(this, "Đã lưu file SRT thành công!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "Lỗi khi lưu file: " + e.getMessage(), Toast.LENGTH_SHORT).show();

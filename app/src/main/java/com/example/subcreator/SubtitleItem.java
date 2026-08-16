@@ -19,6 +19,7 @@ public class SubtitleItem {
     public String getStartTime() { return startTime; }
     public String getEndTime() { return endTime; }
     public String getOriginalText() { return originalText; }
+    public void setOriginalText(String originalText) { this.originalText = originalText; }
     public String getTranslatedText() { return translatedText; }
     public void setTranslatedText(String translatedText) { this.translatedText = translatedText; }
 
@@ -28,13 +29,10 @@ public class SubtitleItem {
         sb.append(startTime).append(" --> ").append(endTime).append("\n");
 
         if (mode == 0) {
-            // Song ngữ (Gốc + Dịch)
             sb.append(originalText).append("\n").append(translatedText).append("\n\n");
         } else if (mode == 1) {
-            // Chỉ Tiếng Việt
             sb.append(translatedText).append("\n\n");
         } else {
-            // Chỉ Tiếng Gốc
             sb.append(originalText).append("\n\n");
         }
         return sb.toString();
