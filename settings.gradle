@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "SubCreator"
-include(":app")
+include ':app'
