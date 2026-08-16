@@ -4,24 +4,21 @@ public class SubtitleItem {
     private int id;
     private String startTime;
     private String endTime;
-    private String originalText;   // Tiếng Trung
-    private String translatedText; // Tiếng Việt
+    private String originalText;
 
-    public SubtitleItem(int id, String startTime, String endTime, String originalText, String translatedText) {
+    public SubtitleItem(int id, String startTime, String endTime, String originalText) {
         this.id = id;
         this.startTime = startTime;
         this.endTime = endTime;
         this.originalText = originalText;
-        this.translatedText = translatedText;
     }
 
+    public int getId() { return id; }
     public String getStartTime() { return startTime; }
     public String getEndTime() { return endTime; }
     public String getOriginalText() { return originalText; }
-    public String getTranslatedText() { return translatedText; }
-    public void setTranslatedText(String translatedText) { this.translatedText = translatedText; }
 
     public String toSrtFormat() {
-        return id + "\n" + startTime + " --> " + endTime + "\n" + translatedText + "\n\n";
+        return id + "\n" + startTime + " --> " + endTime + "\n" + originalText + "\n\n";
     }
 }

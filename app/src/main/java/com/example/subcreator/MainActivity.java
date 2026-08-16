@@ -2,6 +2,8 @@ package com.example.subcreator;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -23,6 +25,7 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
 
@@ -44,18 +47,19 @@ public class MainActivity extends Activity {
 
         TextView titleText = new TextView(this);
         titleText.setText("SubCreator - Trình Tạo Phụ Đề Offline");
-        titleText.setTextSize(22);
+        titleText.setTextSize(20);
+        titleText.setTypeface(null, Typeface.BOLD);
         titleText.setPadding(0, 0, 0, 16);
         rootLayout.addView(titleText);
 
-        // Khung chọn ngôn ngữ nhận diện
+        // Khung chọn ngôn ngữ
         LinearLayout langLayout = new LinearLayout(this);
         langLayout.setOrientation(LinearLayout.HORIZONTAL);
         langLayout.setPadding(0, 0, 0, 16);
 
         TextView langLabel = new TextView(this);
-        langLabel.setText("Chọn ngôn ngữ âm thanh: ");
-        langLabel.setTextSize(16);
+        langLabel.setText("Ngôn ngữ âm thanh: ");
+        langLabel.setTextSize(15);
         langLayout.addView(langLabel);
 
         langSpinner = new Spinner(this);
@@ -83,7 +87,7 @@ public class MainActivity extends Activity {
         rootLayout.addView(btnLayout);
 
         statusText = new TextView(this);
-        statusText.setText("Đang khởi tạo các Mô hình AI Offline (Trung & Việt)...");
+        statusText.setText("Đang khởi tạo các Mô hình AI Offline...");
         statusText.setPadding(0, 16, 0, 16);
         rootLayout.addView(statusText);
 
@@ -99,11 +103,9 @@ public class MainActivity extends Activity {
     }
 
     private void initOfflineModels() {
-        // Khởi tạo mô hình Tiếng Trung
         StorageService.unpack(this, "model-cn", "model-cn",
             modelCn -> {
                 voskModelCn = modelCn;
-                // Khởi tạo tiếp mô hình Tiếng Việt
                 StorageService.unpack(this, "model-vn", "model-vn",
                     modelVn -> {
                         voskModelVn = modelVn;
@@ -127,7 +129,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == PICK_FILE_REQUEST && resultCode == RESULT_OK && data != null) {
             Uri fileUri = data.getData();
-            statusText.setText("Đang xử lý âm thanh...");
+            statusText.setText("Đang phân tích âm thanh & tính toán timeline...");
             processAudioFile(fileUri);
         }
     }
@@ -150,23 +152,38 @@ public class MainActivity extends Activity {
                 subtitleList.clear();
                 int id = 1;
 
+                long bytesProcessed = 0;
+                long startMs = 0;
+                double bytesPerMs = 32.0; // Giả định PCM 16kHz 16-bit Mono
+
                 while ((nbytes = is.read(buffer)) >= 0) {
+                    bytesProcessed += nbytes;
+                    long currentMs = (long) (bytesProcessed / bytesPerMs);
+
                     if (recognizer.acceptWaveForm(buffer, nbytes)) {
                         String resultJson = recognizer.getResult();
-                        if (resultJson.contains("\"text\" : \"")) {
-                            String text = extractTextFromJson(resultJson);
-                            if (!text.trim().isEmpty()) {
-                                String langPrefix = isChinese ? "Gốc (Trung): " : "Gốc (Việt): ";
-                                subtitleList.add(new SubtitleItem(id++, "00:00:00,000", "00:00:05,000", text, langPrefix + text));
-                            }
+                        String text = extractTextFromJson(resultJson);
+                        if (!text.trim().isEmpty()) {
+                            String startTimeStr = formatSrtTime(startMs);
+                            String endTimeStr = formatSrtTime(currentMs);
+                            subtitleList.add(new SubtitleItem(id++, startTimeStr, endTimeStr, text));
+                            startMs = currentMs;
                         }
                     }
                 }
+
+                String finalJson = recognizer.getFinalResult();
+                String finalText = extractTextFromJson(finalJson);
+                if (!finalText.trim().isEmpty()) {
+                    long currentMs = (long) (bytesProcessed / bytesPerMs);
+                    subtitleList.add(new SubtitleItem(id++, formatSrtTime(startMs), formatSrtTime(currentMs), finalText));
+                }
+
                 is.close();
                 recognizer.close();
 
                 runOnUiThread(() -> {
-                    statusText.setText("Hoàn tất! Tìm thấy " + subtitleList.size() + " câu phụ đề.");
+                    statusText.setText("Hoàn tất! Bóc tách được " + subtitleList.size() + " câu phụ đề kèm Timeline.");
                     renderSubEditor();
                 });
 
@@ -174,6 +191,14 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> statusText.setText("Lỗi xử lý file: " + e.getMessage()));
             }
         }).start();
+    }
+
+    private String formatSrtTime(long ms) {
+        long hours = ms / (1000 * 60 * 60);
+        long minutes = (ms % (1000 * 60 * 60)) / (1000 * 60);
+        long seconds = (ms % (1000 * 60)) / 1000;
+        long millis = ms % 1000;
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d,%03d", hours, minutes, seconds, millis);
     }
 
     private String extractTextFromJson(String json) {
@@ -189,16 +214,28 @@ public class MainActivity extends Activity {
     private void renderSubEditor() {
         subContainer.removeAllViews();
         for (SubtitleItem item : subtitleList) {
-            LinearLayout itemBox = new LinearLayout(this);
-            itemBox.setOrientation(LinearLayout.VERTICAL);
-            itemBox.setPadding(16, 16, 16, 16);
+            LinearLayout itemCard = new LinearLayout(this);
+            itemCard.setOrientation(LinearLayout.VERTICAL);
+            itemCard.setPadding(24, 20, 24, 20);
 
-            TextView origView = new TextView(this);
-            origView.setText("Nội dung bóc tách: " + item.getOriginalText());
-            origView.setTextSize(15);
+            // Mốc thời gian (Timeline)
+            TextView timeView = new TextView(this);
+            timeView.setText("[" + item.getStartTime() + "  -->  " + item.getEndTime() + "]");
+            timeView.setTextSize(13);
+            timeView.setTypeface(null, Typeface.BOLD);
+            timeView.setTextColor(Color.parseColor("#0066CC"));
+            timeView.setPadding(0, 0, 0, 6);
 
-            itemBox.addView(origView);
-            subContainer.addView(itemBox);
+            // Nội dung Phụ đề
+            TextView subTextView = new TextView(this);
+            subTextView.setText(item.getOriginalText());
+            subTextView.setTextSize(16);
+            subTextView.setTextColor(Color.BLACK);
+
+            itemCard.addView(timeView);
+            itemCard.addView(subTextView);
+
+            subContainer.addView(itemCard);
         }
     }
 
