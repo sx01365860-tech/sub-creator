@@ -5,9 +5,11 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,7 +30,9 @@ public class MainActivity extends Activity {
     private List<SubtitleItem> subtitleList = new ArrayList<>();
     private LinearLayout subContainer;
     private TextView statusText;
-    private Model voskModel;
+    private Model voskModelCn;
+    private Model voskModelVn;
+    private Spinner langSpinner;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,9 +45,28 @@ public class MainActivity extends Activity {
         TextView titleText = new TextView(this);
         titleText.setText("SubCreator - Trình Tạo Phụ Đề Offline");
         titleText.setTextSize(22);
-        titleText.setPadding(0, 0, 0, 24);
+        titleText.setPadding(0, 0, 0, 16);
         rootLayout.addView(titleText);
 
+        // Khung chọn ngôn ngữ nhận diện
+        LinearLayout langLayout = new LinearLayout(this);
+        langLayout.setOrientation(LinearLayout.HORIZONTAL);
+        langLayout.setPadding(0, 0, 0, 16);
+
+        TextView langLabel = new TextView(this);
+        langLabel.setText("Chọn ngôn ngữ âm thanh: ");
+        langLabel.setTextSize(16);
+        langLayout.addView(langLabel);
+
+        langSpinner = new Spinner(this);
+        String[] languages = {"Tiếng Trung (Mandarin)", "Tiếng Việt (Vietnamese)"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages);
+        langSpinner.setAdapter(adapter);
+        langLayout.addView(langSpinner);
+
+        rootLayout.addView(langLayout);
+
+        // Khung nút bấm
         LinearLayout btnLayout = new LinearLayout(this);
         btnLayout.setOrientation(LinearLayout.HORIZONTAL);
 
@@ -60,7 +83,7 @@ public class MainActivity extends Activity {
         rootLayout.addView(btnLayout);
 
         statusText = new TextView(this);
-        statusText.setText("Đang tải Mô hình AI Tiếng Trung Offline...");
+        statusText.setText("Đang khởi tạo các Mô hình AI Offline (Trung & Việt)...");
         statusText.setPadding(0, 16, 0, 16);
         rootLayout.addView(statusText);
 
@@ -72,16 +95,24 @@ public class MainActivity extends Activity {
         rootLayout.addView(scrollView);
         setContentView(rootLayout);
 
-        initOfflineModel();
+        initOfflineModels();
     }
 
-    private void initOfflineModel() {
+    private void initOfflineModels() {
+        // Khởi tạo mô hình Tiếng Trung
         StorageService.unpack(this, "model-cn", "model-cn",
-            model -> {
-                voskModel = model;
-                statusText.setText("Trạng thái: Mô hình AI Offline đã sẵn sàng!");
+            modelCn -> {
+                voskModelCn = modelCn;
+                // Khởi tạo tiếp mô hình Tiếng Việt
+                StorageService.unpack(this, "model-vn", "model-vn",
+                    modelVn -> {
+                        voskModelVn = modelVn;
+                        statusText.setText("Trạng thái: Đã sẵn sàng mô hình AI Tiếng Trung & Tiếng Việt!");
+                    },
+                    exception -> statusText.setText("Lỗi tải Mô hình AI Tiếng Việt: " + exception.getMessage())
+                );
             },
-            exception -> statusText.setText("Lỗi tải Mô hình AI: " + exception.getMessage())
+            exception -> statusText.setText("Lỗi tải Mô hình AI Tiếng Trung: " + exception.getMessage())
         );
     }
 
@@ -102,15 +133,18 @@ public class MainActivity extends Activity {
     }
 
     private void processAudioFile(Uri uri) {
-        if (voskModel == null) {
-            Toast.makeText(this, "Mô hình AI chưa sẵn sàng!", Toast.LENGTH_SHORT).show();
+        boolean isChinese = langSpinner.getSelectedItemPosition() == 0;
+        Model activeModel = isChinese ? voskModelCn : voskModelVn;
+
+        if (activeModel == null) {
+            Toast.makeText(this, "Mô hình AI cho ngôn ngữ này chưa sẵn sàng!", Toast.LENGTH_SHORT).show();
             return;
         }
 
         new Thread(() -> {
             try {
                 InputStream is = getContentResolver().openInputStream(uri);
-                Recognizer recognizer = new Recognizer(voskModel, 16000.0f);
+                Recognizer recognizer = new Recognizer(activeModel, 16000.0f);
                 byte[] buffer = new byte[4096];
                 int nbytes;
                 subtitleList.clear();
@@ -122,7 +156,8 @@ public class MainActivity extends Activity {
                         if (resultJson.contains("\"text\" : \"")) {
                             String text = extractTextFromJson(resultJson);
                             if (!text.trim().isEmpty()) {
-                                subtitleList.add(new SubtitleItem(id++, "00:00:00,000", "00:00:05,000", text, "[Dịch AI]: " + text));
+                                String langPrefix = isChinese ? "Gốc (Trung): " : "Gốc (Việt): ";
+                                subtitleList.add(new SubtitleItem(id++, "00:00:00,000", "00:00:05,000", text, langPrefix + text));
                             }
                         }
                     }
@@ -159,16 +194,10 @@ public class MainActivity extends Activity {
             itemBox.setPadding(16, 16, 16, 16);
 
             TextView origView = new TextView(this);
-            origView.setText("Gốc (Trung): " + item.getOriginalText());
-            origView.setTextSize(14);
-
-            TextView transView = new TextView(this);
-            transView.setText("Dịch (Việt): " + item.getTranslatedText());
-            transView.setTextSize(15);
+            origView.setText("Nội dung bóc tách: " + item.getOriginalText());
+            origView.setTextSize(15);
 
             itemBox.addView(origView);
-            itemBox.addView(transView);
-
             subContainer.addView(itemBox);
         }
     }
