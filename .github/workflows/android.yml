@@ -23,22 +23,6 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Download Deep Offline Models (Trung & Việt)
-      run: |
-        mkdir -p app/src/main/assets
-        
-        # Tải mô hình Tiếng Trung
-        curl -L -o model-cn.zip https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
-        unzip -q -o model-cn.zip
-        mv vosk-model-small-cn-0.22 app/src/main/assets/model-cn
-        rm model-cn.zip
-
-        # Tải mô hình Tiếng Việt Chuyên Sâu (78MB)
-        curl -L -o model-vn-deep.zip https://alphacephei.com/vosk/models/vosk-model-vn-0.4.zip
-        unzip -q -o model-vn-deep.zip
-        mv vosk-model-vn-0.4 app/src/main/assets/model-vn
-        rm model-vn-deep.zip
-
     - name: Build Debug APK
       run: ./gradlew assembleDebug
 
