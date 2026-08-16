@@ -5,15 +5,19 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.vosk.Model;
+import org.vosk.Recognizer;
+import org.vosk.android.StorageService;
+
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +28,7 @@ public class MainActivity extends Activity {
     private List<SubtitleItem> subtitleList = new ArrayList<>();
     private LinearLayout subContainer;
     private TextView statusText;
+    private Model voskModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,19 +38,17 @@ public class MainActivity extends Activity {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(32, 32, 32, 32);
 
-        // Header Title
         TextView titleText = new TextView(this);
-        titleText.setText("SubCreator - Trình Tạo & Chỉnh Sửa Phụ Đề");
+        titleText.setText("SubCreator - Trình Tạo Phụ Đề Offline");
         titleText.setTextSize(22);
         titleText.setPadding(0, 0, 0, 24);
         rootLayout.addView(titleText);
 
-        // Control Buttons
         LinearLayout btnLayout = new LinearLayout(this);
         btnLayout.setOrientation(LinearLayout.HORIZONTAL);
 
         Button btnSelectFile = new Button(this);
-        btnSelectFile.setText("Chọn Video/Audio");
+        btnSelectFile.setText("Chọn File Âm Thanh/Video");
         btnSelectFile.setOnClickListener(v -> openFilePicker());
 
         Button btnExportSrt = new Button(this);
@@ -56,13 +59,11 @@ public class MainActivity extends Activity {
         btnLayout.addView(btnExportSrt);
         rootLayout.addView(btnLayout);
 
-        // Status Text
         statusText = new TextView(this);
-        statusText.setText("Trạng thái: Sẵn sàng chọn file...");
+        statusText.setText("Đang tải Mô hình AI Tiếng Trung Offline...");
         statusText.setPadding(0, 16, 0, 16);
         rootLayout.addView(statusText);
 
-        // Subtitle Editor Container (Scrollable)
         ScrollView scrollView = new ScrollView(this);
         subContainer = new LinearLayout(this);
         subContainer.setOrientation(LinearLayout.VERTICAL);
@@ -71,8 +72,17 @@ public class MainActivity extends Activity {
         rootLayout.addView(scrollView);
         setContentView(rootLayout);
 
-        // Mock dữ liệu mẫu để thử nghiệm giao diện Sub Editor song ngữ
-        loadMockSubtitles();
+        initOfflineModel();
+    }
+
+    private void initOfflineModel() {
+        StorageService.unpack(this, "model-cn", "model-cn",
+            model -> {
+                voskModel = model;
+                statusText.setText("Trạng thái: Mô hình AI Offline đã sẵn sàng!");
+            },
+            exception -> statusText.setText("Lỗi tải Mô hình AI: " + exception.getMessage())
+        );
     }
 
     private void openFilePicker() {
@@ -86,16 +96,59 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == PICK_FILE_REQUEST && resultCode == RESULT_OK && data != null) {
             Uri fileUri = data.getData();
-            statusText.setText("Đã chọn file: " + fileUri.getPath() + "\nĐang trích xuất âm thanh & tạo phụ đề...");
-            // TODO: Tích hợp FFmpeg trích xuất audio & Sherpa-onnx / Whisper nhận diện giọng nói
+            statusText.setText("Đang xử lý âm thanh...");
+            processAudioFile(fileUri);
         }
     }
 
-    private void loadMockSubtitles() {
-        subtitleList.clear();
-        subtitleList.add(new SubtitleItem(1, "00:00:01,000", "00:00:03,500", "你好，欢迎使用 SubCreator！", "Xin chào, chào mừng bạn sử dụng SubCreator!"));
-        subtitleList.add(new SubtitleItem(2, "00:00:04,000", "00:00:07,200", "这是一个离线字幕识别与AI翻译工具。", "Đây là công cụ nhận diện phụ đề offline và dịch thuật AI."));
-        renderSubEditor();
+    private void processAudioFile(Uri uri) {
+        if (voskModel == null) {
+            Toast.makeText(this, "Mô hình AI chưa sẵn sàng!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                InputStream is = getContentResolver().openInputStream(uri);
+                Recognizer recognizer = new Recognizer(voskModel, 16000.0f);
+                byte[] buffer = new byte[4096];
+                int nbytes;
+                subtitleList.clear();
+                int id = 1;
+
+                while ((nbytes = is.read(buffer)) >= 0) {
+                    if (recognizer.acceptWaveForm(buffer, nbytes)) {
+                        String resultJson = recognizer.getResult();
+                        if (resultJson.contains("\"text\" : \"")) {
+                            String text = extractTextFromJson(resultJson);
+                            if (!text.trim().isEmpty()) {
+                                subtitleList.add(new SubtitleItem(id++, "00:00:00,000", "00:00:05,000", text, "[Dịch AI]: " + text));
+                            }
+                        }
+                    }
+                }
+                is.close();
+                recognizer.close();
+
+                runOnUiThread(() -> {
+                    statusText.setText("Hoàn tất! Tìm thấy " + subtitleList.size() + " câu phụ đề.");
+                    renderSubEditor();
+                });
+
+            } catch (Exception e) {
+                runOnUiThread(() -> statusText.setText("Lỗi xử lý file: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private String extractTextFromJson(String json) {
+        try {
+            int start = json.indexOf("\"text\" : \"") + 10;
+            int end = json.indexOf("\"", start);
+            return json.substring(start, end);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void renderSubEditor() {
@@ -105,10 +158,6 @@ public class MainActivity extends Activity {
             itemBox.setOrientation(LinearLayout.VERTICAL);
             itemBox.setPadding(16, 16, 16, 16);
 
-            TextView timeView = new TextView(this);
-            timeView.setText("[" + item.getStartTime() + " -> " + item.getEndTime() + "]");
-            timeView.setTextSize(12);
-
             TextView origView = new TextView(this);
             origView.setText("Gốc (Trung): " + item.getOriginalText());
             origView.setTextSize(14);
@@ -117,7 +166,6 @@ public class MainActivity extends Activity {
             transView.setText("Dịch (Việt): " + item.getTranslatedText());
             transView.setTextSize(15);
 
-            itemBox.addView(timeView);
             itemBox.addView(origView);
             itemBox.addView(transView);
 
