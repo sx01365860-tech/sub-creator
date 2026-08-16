@@ -6,17 +6,15 @@ import java.util.Map;
 
 public class SubContextAIHelper {
 
-    private static final Map<String, String> CONTEXT_PATTERNS = new HashMap<>();
+    private static final Map<String, String> ADVANCED_PATTERNS = new HashMap<>();
 
     static {
-        // Tối ưu hóa ngữ cảnh dịch thô sang Tiếng Việt chuẩn
-        CONTEXT_PATTERNS.put("Tôi là Xin chào", "Xin chào, tôi là");
-        CONTEXT_PATTERNS.put("Xin chào Tôi là", "Xin chào, tôi là");
-        CONTEXT_PATTERNS.put("Cái gì Tên", "Tên là gì");
-        CONTEXT_PATTERNS.put("Tôi Yêu", "Tôi rất yêu");
-        CONTEXT_PATTERNS.put("Không Có", "Không có");
-        CONTEXT_PATTERNS.put("Ở Đi", "Đang đi đến");
-        CONTEXT_PATTERNS.put("Học tập Làm việc", "Học tập và làm việc");
+        ADVANCED_PATTERNS.put("tôi là xin chào", "Xin chào, tôi là");
+        ADVANCED_PATTERNS.put("cái gì tên", "Tên là gì");
+        ADVANCED_PATTERNS.put("không có không", "Không có đâu");
+        ADVANCED_PATTERNS.put("ở đâu làm việc", "Làm việc ở đâu");
+        ADVANCED_PATTERNS.put("đi đâu đi", "Đi đâu thế");
+        ADVANCED_PATTERNS.put("bạn là ai người", "Bạn là người ở đâu");
     }
 
     public static void reviewAndRefine(List<SubtitleItem> items) {
@@ -24,30 +22,26 @@ public class SubContextAIHelper {
 
         for (int i = 0; i < items.size(); i++) {
             SubtitleItem current = items.get(i);
-            String prevText = (i > 0) ? items.get(i - 1).getTranslatedText() : "";
-
             String text = current.getTranslatedText();
             if (text == null || text.trim().isEmpty()) continue;
 
-            // 1. Chuẩn hóa khoảng trắng
             text = text.trim().replaceAll("\\s+", " ");
+            text = fixPossessiveStructure(text);
 
-            // 2. Thay thế các cụm từ theo ngữ cảnh
-            for (Map.Entry<String, String> entry : CONTEXT_PATTERNS.entrySet()) {
-                if (text.contains(entry.getKey())) {
-                    text = text.replace(entry.getKey(), entry.getValue());
+            String lowerText = text.toLowerCase();
+            for (Map.Entry<String, String> entry : ADVANCED_PATTERNS.entrySet()) {
+                if (lowerText.contains(entry.getKey())) {
+                    text = text.replaceAll("(?i)" + entry.getKey(), entry.getValue());
                 }
             }
 
-            // 3. Xử lý viết hoa/viết thường dựa theo câu phía trước
-            if (prevText != null && !prevText.isEmpty() && (prevText.endsWith(",") || prevText.toLowerCase().contains("vì vậy") || prevText.toLowerCase().contains("tuy nhiên"))) {
-                text = Character.toLowerCase(text.charAt(0)) + (text.length() > 1 ? text.substring(1) : "");
-            } else {
+            if (text.length() > 0) {
                 text = Character.toUpperCase(text.charAt(0)) + (text.length() > 1 ? text.substring(1) : "");
             }
 
-            // 4. Nhận diện ngữ cảnh câu hỏi hoặc câu cảm thán
-            if (text.contains("gì") || text.contains("sao") || text.contains("đâu") || text.contains("nào") || text.contains("mấy") || text.contains("ai")) {
+            if (text.toLowerCase().contains("gì") || text.toLowerCase().contains("ai") || 
+                text.toLowerCase().contains("sao") || text.toLowerCase().contains("đâu") || 
+                text.toLowerCase().contains("không") || text.toLowerCase().contains("mấy")) {
                 if (!text.endsWith("?") && !text.endsWith(".") && !text.endsWith("!")) {
                     text = text + "?";
                 }
@@ -57,5 +51,15 @@ public class SubContextAIHelper {
 
             current.setTranslatedText(text);
         }
+    }
+
+    private static String fixPossessiveStructure(String input) {
+        if (input.contains(" của ")) {
+            String[] parts = input.split(" của ");
+            if (parts.length == 2 && parts[0].length() < 10 && parts[1].length() < 10) {
+                return parts[1] + " của " + parts[0];
+            }
+        }
+        return input;
     }
 }
